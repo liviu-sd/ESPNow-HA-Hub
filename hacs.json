@@ -1,0 +1,9 @@
+{
+    "name": "ESPNow-HA-Hub",
+    "render_readme": true,
+    "domain": "espnow_hub",
+    "documentation": "https://github.com/liviu-sd/ESPNow-HA-Hub",
+    "issue_tracker": "https://github.com/liviu-sd/ESPNow-HA-Hub/issues",
+    "hacs": "2.0.5",
+    "iot_class": "local_push"
+}

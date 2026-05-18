@@ -1,10 +1,10 @@
 {
   "domain": "espnow_hub",
   "name": "ESPNow Hub",
-  "documentation": "https://github.com/yourusername/espnow_hub",
-  "issue_tracker": "https://github.com/yourusername/espnow_hub/issues",
+  "documentation": "https://github.com/liviu-sd/ESPNow-HA-Hub",
+  "issue_tracker": "https://github.com/liviu-sd/ESPNow-HA-Hub/issues",
   "dependencies": [],
-  "codeowners": ["@yourusername"],
+  "codeowners": ["@liviu-sd"],
   "requirements": [],
   "iot_class": "local_push",
   "version": "1.0.3",
