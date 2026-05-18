@@ -1,7 +1,0 @@
-{
-  "title": "ESPNow Hub",
-  "description": "Listen for ESPNow messages and create sensors dynamically.",
-  "config": {
-    "already_configured": "ESPNow Hub is already configured."
-  }
-}
