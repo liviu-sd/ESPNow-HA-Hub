@@ -11,7 +11,6 @@ using namespace std;
 #endif
 
 #include <ArduinoJson.h>
-// #include "ArduinoJson.h"
 
 #include "CayenneLPP.h"
 
@@ -39,9 +38,6 @@ namespace ESPNowHelpers
 
         return size;
     }
-
-//    void log_message(ESPNowRecvInfo info, uint8_t *data, double size, string level = "D", string tag = "", string prefix = "") {
-//    }
 }
 
 #endif //espnow_helpers__hpp

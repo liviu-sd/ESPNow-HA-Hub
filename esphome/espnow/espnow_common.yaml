@@ -6,11 +6,9 @@ substitutions:
 
   esphome_name: a-espnow-hub
 
-  esphome_friendly_name: ESPNow Hub
+  esphome_friendly_name: "*ESPNow Hub"
 
   initial_espnow_channel: "11"
-  espnow_own_address: 24:4C:AB:29:52:80
-  ethernet_use_address: 192.168.107.73
   time_on_time_cron:  '/59 * * * * *'
 
 esphome:
