@@ -1,0 +1,249 @@
+substitutions:
+  esphome_name: espnow-hub
+
+  initial_espnow_channel: "1"
+  esphome_friendly_name: "*ESPNow Hub"
+  espnow_own_address: 24:4C:AB:28:7B:C8
+  ethernet_use_address: 192.168.107.10
+  time_on_time_cron:  '/13 * * * * *'
+
+packages:
+  esphome: !include common_configs/esphome.yml
+  api_hass: !include common_configs/api_hass.yml
+  time: !include common_configs/time_hass.yml
+  
+  ethernet: !include common_configs/network/ethernet_iotl_lan8720.yml
+  ethernet_info: !include common_configs/network/ethernet_info.yml
+  espnow_common: !include espnow/espnow_common.yaml
+  
+esphome:
+  name: ${esphome_name} #a-espnow-hub
+  friendly_name: ${esphome_friendly_name} #A-ESPNow Hub
+
+      
+logger:
+  level: DEBUG # INFO
+  logs: 
+    sensor: WARN
+    binary_sensor: WARN
+    text_sensor: WARN
+
+esp32:
+  board: esp32-poe-iso
+  framework:
+    type: esp-idf
+    advanced:
+    #   compiler_optimization: PERF
+    # [06:03:34.964][W][app:174]: Chip rev >= 3.0 detected. Set minimum_chip_revision: "3.0" under esp32 > framework > advanced to reduce binary size
+      minimum_chip_revision: "3.0" 
+    # [06:03:34.966][W][app:201]: Bootloader supports SRAM1 as IRAM (+40KB). Set sram1_as_iram: true under esp32 > framework > advanced
+      sram1_as_iram: true
+                            
+espnow:
+  channel: ${initial_espnow_channel}
+  auto_add_peer: True
+  peers: 
+    - 24:4C:AB:28:7B:C8
+    - C0:49:EF:F9:20:28
+    - E8:DB:84:99:3D:E1
+    - F0:08:D1:C9:2D:B4
+    - 24:4C:AB:29:52:80 # prod hub
+
+  on_unknown_peer:
+    - lambda: |-
+        char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char hex[256];
+        ESP_LOGD("on_unknown_peer", "New peer: to %s from %s: %s RSSI: %ddBm",
+                 format_mac_addr_upper(info.des_addr, des_mac),
+                 format_mac_addr_upper(info.src_addr, src_mac),
+                 format_hex_pretty_to(hex, data, size),
+                 info.rx_ctrl->rssi);
+  on_receive:
+    - lambda: |-
+        char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char hex[256];
+        ESP_LOGD("on_receive", "Sent to %s from %s: %s RSSI: %ddBm",
+                 format_mac_addr_upper(info.des_addr, des_mac),
+                 format_mac_addr_upper(info.src_addr, src_mac),
+                 format_hex_pretty_to(hex, data, size),
+                 info.rx_ctrl->rssi);
+
+    - sensor.template.publish:
+        id: direct_received
+        state: !lambda |-
+          if (0 < (int)id(direct_received).state) {
+            return 1 + (int)id(direct_received).state;
+          } else {
+            return 1;
+          }
+
+  on_broadcast:
+    - lambda: |-
+        using namespace std;
+
+        string s_data;
+        size_t s_data_size = ESPNowHelpers::parseJSON_S(data, size, s_data);
+
+        if (0 >= s_data_size) {
+          ESP_LOGD("on_broadcast", "received 0 length message (json_data: %s)", s_data.c_str());
+          return;
+        }
+
+        ESP_LOGD("on_broadcast", "json_data: %s", s_data.c_str());
+
+        string sender = str_snprintf("%02X:%02X:%02X:%02X:%02X:%02X", 17, info.src_addr[0], info.src_addr[1], info.src_addr[2], info.src_addr[3], info.src_addr[4], info.src_addr[5]);
+        string via = str_snprintf("%02X:%02X:%02X:%02X:%02X:%02X", 17, info.des_addr[0], info.des_addr[1], info.des_addr[2], info.des_addr[3], info.des_addr[4], info.des_addr[5]);
+        string receiver = "${espnow_own_address}";
+        double rssi = info.rx_ctrl->rssi;
+
+        id(send_hass_event_espnow_message)->execute(s_data, sender, receiver, via, rssi);
+
+    - script.execute: 
+        id: log_packet_info
+        tag: "on_broadcast"
+        prefix: "098a1234: "
+
+    - lambda: |-
+        char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+        char hex[256];
+        ESP_LOGV("on_broadcast", "Sent to %s from %s: %s RSSI: %ddBm",
+                 format_mac_addr_upper(info.des_addr, des_mac),
+                 format_mac_addr_upper(info.src_addr, src_mac),
+                 format_hex_pretty_to(hex, data, size),
+                 info.rx_ctrl->rssi);
+
+    - sensor.template.publish:
+        id: broadcast_received
+        state: !lambda |-
+          if (0 < id(broadcast_received).state) {
+            return 1 + (int)id(broadcast_received).state;
+          } else {
+            return 1;
+          }
+
+select:
+  - platform: template
+    name: Channel
+    id: espnow_channel
+    entity_category: config
+    options:
+    - "0"
+    - "1"
+    - "2"
+    - "3"
+    - "4"
+    - "5"
+    - "6"
+    - "7"
+    - "8"
+    - "9"
+    - "10"
+    - "11"
+    - "12"
+    - "13"
+    initial_option: ${initial_espnow_channel}
+    restore_value: True
+    optimistic: true
+    # set_action:
+    on_value:
+      - logger.log:
+          format: "Chosen option: %s (index %d)"
+          args: ["x.c_str()", "i"]
+      - espnow.set_channel: !lambda "return i;"
+
+sensor:
+  ## local device sensors
+  - platform: template
+    name: Direct Received
+    id: direct_received
+    entity_category: diagnostic
+    disabled_by_default: true
+  - platform: template
+    name: Broadcast Received
+    id: broadcast_received
+    disabled_by_default: true
+    entity_category: diagnostic
+
+time:
+  - id: !extend esphome_time
+    on_time:
+      - cron: ${time_on_time_cron}
+        then:
+          - script.execute: broadcast_time
+
+
+
+ethernet:
+  use_address: ${ethernet_use_address}
+
+script:
+  - id: log_packet_info
+    mode: single
+    parameters:
+      tag: string
+      prefix: string
+    then:
+      - lambda: |-
+          char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+          char hex[256];
+          ESP_LOGD(tag, "%sSent to %s from %s: %s RSSI: %ddBm", prefix,
+                    format_mac_addr_upper(info.des_addr, des_mac),
+                    format_mac_addr_upper(info.src_addr, src_mac),
+                    format_hex_pretty_to(hex, data, size),
+                    info.rx_ctrl->rssi);
+
+  - id: broadcast_time
+    then:
+      - logger.log: 
+          format: "Broadcasting time %d"
+          args: 
+            - id(esphome_time).now().timestamp
+      - espnow.broadcast:
+          # data: !lambda |-
+          #   string s = to_string(id(esphome_time).now().timestamp);
+          #   return s;
+          data: !lambda |-
+            CayenneLPP lpp(160);
+            lpp.reset();
+
+            lpp.addUnixTime(${espnow_sys_channel}, id(esphome_time).now().timestamp);
+
+            uint8_t* m = lpp.getBuffer();
+            std::vector<unsigned char> my_vector(
+                m,
+                m + lpp.getSize());
+            return my_vector;
+
+  - id: send_hass_event_espnow_message
+    mode: queued
+    max_runs: 99
+    parameters:
+      event_data: string
+      sender: string
+      receiver: string
+      via: string
+      rssi: float
+    then:
+      - homeassistant.event:
+          event: esphome.espnow_message
+          data_template:
+            sender_data: '{{ sender_data }}'
+            sender: '{{ from_node }}'
+            receiver: '{{ receiver_node }}'
+            via: '{{ via_node }}'
+            rssi: '{{ rssi }}'
+          variables:
+            sender_data: !lambda |-
+              return event_data;
+            from_node: !lambda |-
+              return sender;
+            receiver_node: !lambda |-
+              return receiver;
+            via_node: !lambda |-
+              return via;
+            rssi: !lambda |-
+              return rssi;

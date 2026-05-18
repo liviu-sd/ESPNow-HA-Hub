@@ -1,0 +1,319 @@
+substitutions:
+  esphome_name: espnow-bme68x-node
+  esphome_friendly_name: "*ESPNow-BME68x Node"
+  espnow_channel: 10
+
+  # espnow_sys_channel: 60
+  # data_channel: 0
+  # espnow_config_channel: 63
+  # espnow_diagnostic_channel: 62
+
+  espected_sensors_to_read: 0b01111111
+  use_sample_rate: "ULP"
+  use_temperature_offset: 1.4
+
+  # espnow_hub: 24:4C:AB:29:52:80
+
+globals:
+  - id: readed_sensors
+    type: int
+    restore_value: False
+    initial_value: '0b00000000'
+  
+logger:
+  level: DEBUG
+  logs: 
+    status_led: WARN
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    advanced:
+    # # W][app:174]: Chip rev >= 3.0 detected. Set minimum_chip_revision: "3.0" under esp32 > framework > advanced to reduce binary size
+    #   minimum_chip_revision: "3.0"
+    # [08:06:53][W][app:201]: Bootloader supports SRAM1 as IRAM (+40KB). Set sram1_as_iram: true under esp32 > framework > advanced
+      sram1_as_iram: True
+
+packages:
+  espnow_common: !include espnow/espnow_common.yaml
+
+esphome:
+  name: ${esphome_name}
+  friendly_name: ${esphome_friendly_name}
+  libraries:
+    - CayenneLPP=electroniccats/CayenneLPP@1.6.1
+  includes:
+    - espnow/espnow_helpers.hpp
+    - <sys/time.h>
+  platformio_options: 
+    build_flags:
+      - -DARDUINOJSON_ENABLE_STD_STRING=1
+      - -DARDUINOJSON_USE_LONG_LONG=1
+      
+  on_boot: 
+    then:
+      - globals.set: 
+          id: readed_sensors
+          value: '0b00000000'
+ 
+time:
+  - platform: host
+    id: device_time
+    timezone: Europe/Bucharest
+
+deep_sleep:
+  id: main_deep_sleep
+  sleep_duration: 290s
+  # run_duration: 60s
+  wakeup_pin: 
+    number: GPIO39
+    inverted: true
+    # allow_other_uses: True
+
+script:
+  - id: new_state_available
+    mode: queued
+    max_runs: 50
+    parameters: 
+      sensor_name: string
+      sensor_value: float
+      sensor_no: int
+    then:
+      - light.turn_on: onboardled
+      - logger.log: 
+          # level: DEBUG
+          format: "Sensor state updated: %s (%u) - %.2f"
+          args: 
+            - sensor_name.c_str()
+            - sensor_no
+            - sensor_value
+      - globals.set:
+          id: readed_sensors
+          value: !lambda
+            return id(readed_sensors) | sensor_no;
+
+      - if:
+          condition:
+            lambda: |-
+              return id(readed_sensors) == ${espected_sensors_to_read};
+          then:
+            - logger.log: 
+                format: "All sensors updated: %u"
+                args: [id(readed_sensors)]
+            - logger.log: 
+                # level: DEBUG
+                format: "Send broadcast T:%.2f, P:%.2f, H:%.2f, iaq:%u, iaq_static:%u, iaq_accuracy:%u, co2_equivalent:%u, breath_voc_equivalent:%u, gas_resistance%.2f, %lld"
+                args: 
+                  - id(temperature).state
+                  - id(pressure).state
+                  - id(relative_humidity).state
+                  - id(iaq).state
+                  - id(iaq_static).state
+                  - id(iaq_accuracy).state
+                  - id(co2_equivalent).state
+                  - id(breath_voc_equivalent).state
+                  - id(gas_resistance).state
+                  - id(device_time).now().timestamp
+
+            - espnow.broadcast:
+                data: !lambda |-
+                  CayenneLPP lpp(160);
+                  lpp.reset();
+
+                  lpp.addGenericSensor(${espnow_sys_channel}, 0b010); // signal is specific sensor
+                  lpp.addUnixTime(${espnow_diagnostic_channel}, id(device_time).now().timestamp); // signal is specific sensor
+
+                  lpp.addTemperature(${data_channel}, id(temperature).state);
+                  lpp.addRelativeHumidity(${data_channel}, id(relative_humidity).state);
+                  lpp.addBarometricPressure(${data_channel}, id(pressure).state);
+
+                  lpp.addGenericSensor(${data_channel}, id(gas_resistance).state);
+
+                  lpp.addConcentration(${data_channel}, id(iaq).state);
+                  lpp.addConcentration(${data_channel} + 1 , id(iaq_static).state);
+                  lpp.addConcentration(${data_channel} + 2 , id(co2_equivalent).state);
+                  lpp.addConcentration(${data_channel} + 3 , id(breath_voc_equivalent).state);
+
+                  lpp.addGenericSensor(${espnow_diagnostic_channel}, id(iaq_accuracy).state);
+
+
+
+                  uint8_t* m = lpp.getBuffer();
+                  std::vector<unsigned char> my_vector(
+                      m,
+                      m + lpp.getSize());
+                  return my_vector;
+            - globals.set:
+                id: readed_sensors
+                value: '0b00000000'
+            - light.turn_off: onboardled
+            # # next must be used together
+            - delay: 3s
+            # - deep_sleep.enter: main_deep_sleep
+                
+          else:
+            - logger.log: 
+                format: "NOT All sensors updated: %u"
+                args: [id(readed_sensors)]
+
+light:
+  - platform: status_led
+    name: "Switch state"
+    pin: GPIO19
+    internal: True
+    id: onboardled
+
+espnow:
+  channel: ${espnow_channel}
+  auto_add_peer: True
+  # peers: 
+  #   - ${espnow_hub}
+  on_broadcast:
+    - lambda: |-
+        JsonDocument jsonBuffer;
+        JsonObject root = jsonBuffer.to<JsonObject>();
+
+        uint8_t parse_state = ESPNowHelpers::parseJSON_O(data, size, root);
+
+        if (parse_state > 0 && root["time_${espnow_sys_channel}"].is<uint32_t>()) {
+          uint32_t epoch = root["time_${espnow_sys_channel}"].as<uint32_t>();
+          id(set_device_time)->execute(epoch);
+        } else {
+          ESP_LOGD("on_broadcast", "received unknown message type");
+        }
+        
+        
+i2c:
+  - id: i2c_bme680
+    sda: GPIO21
+    scl: GPIO22
+    frequency: 52kHz # import for
+    scan: false
+
+bme68x_bsec2_i2c:
+  id: bme680_bsec2
+  address: 0x77
+  model: bme680
+  i2c_id: i2c_bme680
+  temperature_offset: ${use_temperature_offset}
+  sample_rate: ${use_sample_rate}
+
+sensor:
+  - platform: bme68x_bsec2
+    bme68x_bsec2_id: bme680_bsec2
+
+    temperature:
+      id: temperature
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "temperature"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00000001
+
+    pressure:
+      # sample_rate: ${use_sample_rate_other}
+      id: pressure
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "pressure"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00000010
+
+    humidity:
+      # name: "Humidity"
+      id: relative_humidity
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "relative_humidity"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00000100
+
+    gas_resistance:
+      id: gas_resistance
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "gas_resistance"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00001000
+
+    iaq:
+      # name: "IAQ"
+      id: iaq
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "iaq"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00010000
+
+    co2_equivalent:
+      id: co2_equivalent
+      on_value: 
+        then:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "co2_equivalent"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b00100000
+    
+    breath_voc_equivalent:
+      id: breath_voc_equivalent
+      on_value:
+          - script.execute: 
+              id: new_state_available
+              sensor_name: "breath_voc_equivalent"
+              sensor_value: !lambda "return x;"
+              sensor_no: 0b01000000
+
+    iaq_static:
+      id: iaq_static
+      # name: IAQ Static
+
+    iaq_accuracy:
+      # name: IAQ Accuracy
+      id: iaq_accuracy
+
+text_sensor:
+#   - platform: bme68x_bsec2
+#     iaq_accuracy:
+#       # name: "IAQ Accuracy Clasification"
+#       id: iaq_accuracy_humanx
+
+  - platform: template
+    # name: "IAQ Classification"
+    id: iaq_classification
+    lambda: |-
+      if ( int(id(iaq).state) <= 50) {
+        return {"Excellent"};
+      }
+      else if (int(id(iaq).state) >= 51 && int(id(iaq).state) <= 100) {
+        return {"Good"};
+      }
+      else if (int(id(iaq).state) >= 101 && int(id(iaq).state) <= 150) {
+        return {"Lightly polluted"};
+      }
+      else if (int(id(iaq).state) >= 151 && int(id(iaq).state) <= 200) {
+        return {"Moderately polluted"};
+      }
+      else if (int(id(iaq).state) >= 201 && int(id(iaq).state) <= 250) {
+        return {"Heavily polluted"};
+      }
+      else if (int(id(iaq).state) >= 251 && int(id(iaq).state) <= 350) {
+        return {"Severely polluted"};
+      }
+      else if (int(id(iaq).state) >= 351) {
+        return {"Extremely polluted"};
+      }
+      else {
+        return {"unknown"};
+      }

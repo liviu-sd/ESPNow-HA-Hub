@@ -1,0 +1,51 @@
+substitutions:
+  espnow_sys_channel: 60
+  espnow_diagnostic_channel: 40
+  espnow_config_channel: 50
+  data_channel: 0
+
+  esphome_name: a-espnow-hub
+
+  esphome_friendly_name: ESPNow Hub
+
+  initial_espnow_channel: "11"
+  espnow_own_address: 24:4C:AB:29:52:80
+  ethernet_use_address: 192.168.107.73
+  time_on_time_cron:  '/59 * * * * *'
+
+esphome:
+  name: ${esphome_name}
+  friendly_name: ${esphome_friendly_name}
+  libraries:
+    - CayenneLPP=electroniccats/CayenneLPP@1.6.1
+  includes:
+    - espnow/espnow_helpers.hpp
+    - <sys/time.h>
+  platformio_options: 
+    build_flags:
+      - -DARDUINOJSON_ENABLE_STD_STRING=1
+      - -DARDUINOJSON_USE_LONG_LONG=1
+
+script:
+  - id: set_device_time
+    parameters:
+      epoch: uint32_t
+    then:
+      - lambda: |-
+          struct timeval tv_now;
+          gettimeofday(&tv_now, NULL);
+          uint32_t time_s = (uint32_t)tv_now.tv_sec;
+          int64_t time_us = (int64_t)tv_now.tv_sec * 1000000L + (int64_t)tv_now.tv_usec;
+          uint32_t delta = epoch - time_s;
+          ESP_LOGD("internal clock", "now: %lu - %llu, delta: %lu", time_s, time_us, delta);
+
+          if ( delta < 30){
+            ESP_LOGD("internal clock", "no sync, delta: %lu'", delta);
+            return;
+          }
+          struct timeval tv;
+          tv.tv_sec = epoch; // 1778913180; // Unix timestamp in seconds
+          tv.tv_usec = 0;         // Microseconds
+          settimeofday(&tv, NULL);
+          ESP_LOGD("internal clock", "set to: %lu", epoch);
+

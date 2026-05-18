@@ -1,0 +1,117 @@
+substitutions:
+  esphome_name: espnow-node-with-time
+  esphome_friendly_name: "*ESPNow Node With Time"
+  espnow_channel: 1
+
+  espnow_hub: 24:4C:AB:29:52:80
+  espnow_dev_hub: 24:4C:AB:28:7B:C8
+
+logger:
+  level: DEBUG
+  logs: 
+    status_led: WARN
+
+esp32:
+  board: esp32dev
+  framework:
+    type: esp-idf
+    advanced:
+    # # W][app:174]: Chip rev >= 3.0 detected. Set minimum_chip_revision: "3.0" under esp32 > framework > advanced to reduce binary size
+    #   minimum_chip_revision: "3.0"
+    # [08:06:53][W][app:201]: Bootloader supports SRAM1 as IRAM (+40KB). Set sram1_as_iram: true under esp32 > framework > advanced
+      sram1_as_iram: True
+
+esphome:
+  on_boot: 
+    then:
+      - delay: 1s
+      - script.execute: send_sensors_data
+
+packages:
+  espnow_common: !include espnow/espnow_common.yaml
+         
+ 
+time:
+  - platform: host
+    id: device_time
+    timezone: Europe/Bucharest
+    on_time:
+      # Cron syntax, trigger every 5 minutes
+      # - cron: # '00 /5 * * * *'
+      - cron: '/59 * * * * *'
+        then:
+          - script.execute: send_sensors_data
+
+deep_sleep:
+  id: main_deep_sleep
+  sleep_duration: 240s # 290s
+  run_duration: 60s
+  wakeup_pin: 
+    number: GPIO39
+    inverted: true
+    # allow_other_uses: True
+
+script:
+  - id: send_sensors_data
+    then:
+      - logger.log: "Broadcast sensors data"
+      - espnow.broadcast:
+          data: !lambda |-
+            CayenneLPP lpp(160);
+            lpp.reset();
+
+            lpp.addUnixTime(${espnow_diagnostic_channel}, id(device_time).now().timestamp);
+
+            uint8_t* m = lpp.getBuffer();
+            std::vector<unsigned char> my_vector(
+                m,
+                m + lpp.getSize());
+            return my_vector;
+
+light:
+  - platform: status_led
+    name: "Switch state"
+    pin: GPIO19
+    internal: True
+    id: onboardled
+
+espnow:
+  channel: ${espnow_channel}
+  auto_add_peer: False
+  peers: 
+    - ${espnow_dev_hub}
+    - ${espnow_hub}
+    
+  on_broadcast:
+    - lambda: |-
+        JsonDocument jsonBuffer;
+        JsonObject root = jsonBuffer.to<JsonObject>();
+
+        uint8_t parse_state = ESPNowHelpers::parseJSON_O(data, size, root);
+
+        if (parse_state > 0 && root["time_${espnow_sys_channel}"].is<uint32_t>()) {
+          uint32_t epoch = root["time_${espnow_sys_channel}"].as<uint32_t>();
+          id(set_device_time)->execute(epoch);
+        } else {
+          ESP_LOGD("on_broadcast", "received unknown message type");
+        }
+
+    - lambda: |-
+        using namespace std;
+        string s;
+        if (0 <= ESPNowHelpers::parseJSON_S(data, size, s)) {
+          ESP_LOGD("on_broadcast", "received 0 length message");
+          return;
+        }
+
+        ESP_LOGD("on_broadcast", "json_data: %s", s.c_str());
+
+    # - lambda: |-
+    #     char des_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+    #     char src_mac[MAC_ADDRESS_PRETTY_BUFFER_SIZE];
+    #     char hex[256];
+    #     ESP_LOGD("on_broadcast", "Sent to %s from %s: %s RSSI: %ddBm",
+    #              format_mac_addr_upper(info.des_addr, des_mac),
+    #              format_mac_addr_upper(info.src_addr, src_mac),
+    #              format_hex_pretty_to(hex, data, size),
+    #              info.rx_ctrl->rssi);
