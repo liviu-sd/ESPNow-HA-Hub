@@ -42,12 +42,12 @@ def get_sensor(
 ) -> tuple[CayenneLLPSEnsor | None, str | None]:
 
     sensor, channel, isGeneric = getBrandedSensor(name, all_sensors_data)
-    
+
     if isGeneric:
         # set entity category
         if channel in ESPNOW_CONFIG_CHANNELS:
             sensor.entity_category = EntityCategory.CONFIG
-        elif channel in ESPNOW_DIAGNOSTIC_CHANNELS:
+        elif channel in ESPNOW_DIAGNOSTIC_CHANNELS + [ESPNOW_SYS_INFO_CHANNEL]:
             sensor.entity_category = EntityCategory.DIAGNOSTIC
 
     return sensor, channel

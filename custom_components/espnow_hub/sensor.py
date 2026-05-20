@@ -47,7 +47,7 @@ COMMON_SENSOR_DESCRIPTIONS: tuple[SensorEntityDescription, ...] = [
         device_class=SensorDeviceClass.SIGNAL_STRENGTH,
         state_class=SensorStateClass.MEASUREMENT,
         entity_category=EntityCategory.DIAGNOSTIC,
-        entity_registry_enabled_default=True, # important if false update state wil faul
+        entity_registry_enabled_default=True,  # important if false update state wil faul
     ),
 ]
 
@@ -99,7 +99,7 @@ async def _async_handle_event(
 
     new_entities_discovered = False
 
-    for k in sender_data.keys():
+    for k, v in sorted(sender_data.items(), key=lambda item: item[0]):
         sensor_description, suffix = supported_sensors.get_sensor(k, sender_data)
 
         if sensor_description:
