@@ -18,6 +18,7 @@ from homeassistant.helpers.device_registry import (
     async_get as async_get_device_registry,
     DeviceInfo,
     CONNECTION_NETWORK_MAC,
+    DeviceEntry,
 )
 from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
 
@@ -87,11 +88,22 @@ async def _async_handle_event(
         return
 
     sender_safe = format_mac(sender_mac)  # sender_mac.replace(":", "")
+
     # entity_registry = async_get_entity_registry(hass)
+    device_registry = async_get_device_registry(hass)
+
+    device_entry: DeviceEntry = device_registry.async_get_or_create(
+        config_entry_id=entry.entry_id,
+        connections={(CONNECTION_NETWORK_MAC, sender_mac)},
+        identifiers={(DOMAIN, sender_safe)},
+        manufacturer="Liviu S. D.",
+        model="ESPNow",
+        name=f"ESPNow Device {sender_mac}",
+    )
 
     device_info: DeviceInfo = DeviceInfo(
-        identifiers={(DOMAIN, sender_safe)},
         connections={(CONNECTION_NETWORK_MAC, sender_mac)},
+        identifiers={(DOMAIN, sender_safe)},
         manufacturer="Liviu S. D.",
         model="ESPNow",
         name=f"ESPNow Device {sender_mac}",
@@ -125,11 +137,12 @@ async def _async_handle_event(
 
             if k not in hass.data[DOMAIN]["devices"][sender_safe]:
                 new_entity = ESPNowSensor(
-                    sensor_description.getSensorEntityDescription(new_key=k),
-                    device_info,
-                    sender_mac,
-                    sender_safe,
-                    # suffix,
+                    description=sensor_description.getSensorEntityDescription(
+                        new_key=k
+                    ),
+                    device_info=device_info,
+                    sender_mac=sender_mac,
+                    sender_safe=sender_safe,
                 )
                 new_entities_discovered = True  # .append(new_entity)
                 hass.data[DOMAIN]["devices"][sender_safe][k] = new_entity
@@ -161,9 +174,8 @@ class ESPNowSensor(SensorEntity):
         device_info: DeviceInfo,
         sender_mac: str,
         sender_safe: str,
-        sufix: str | None = None,
-        current_state: any | None = None,
     ):
+
         self._attr_device_info = device_info
         self.entity_description = description
 
@@ -171,13 +183,7 @@ class ESPNowSensor(SensorEntity):
         self._sender = sender_mac
         self._sender_safe = sender_safe
 
-        curent_suffix = "" if sufix is None else "_" + sufix
-        self._attr_unique_id = (
-            f"{DOMAIN}_{sender_safe}_{description.key}{curent_suffix}"
-        )
-
-        # if current_state:
-        #     self._attr_state = current_state
+        self._attr_unique_id = f"{DOMAIN}_{sender_safe}_{description.key}"
 
     @property
     def native_value(self):
