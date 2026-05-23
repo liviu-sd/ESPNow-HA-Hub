@@ -43,7 +43,7 @@ def get_sensor(
 
     sensor, channel, isGeneric = getBrandedSensor(name, all_sensors_data)
 
-    if isGeneric:
+    if sensor and isGeneric:
         # set entity category
         if channel in ESPNOW_CONFIG_CHANNELS:
             sensor.entity_category = EntityCategory.CONFIG
