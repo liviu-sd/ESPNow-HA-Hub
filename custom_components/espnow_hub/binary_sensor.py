@@ -3,24 +3,18 @@
 from __future__ import annotations
 from datetime import datetime, timezone
 
-from homeassistant.components.sensor import (
-    SensorEntity,
-    SensorEntityDescription,
-)
-
 from homeassistant.config_entries import ConfigEntry
 from homeassistant.core import HomeAssistant, Event, callback
-from homeassistant.helpers.device_registry import (
-    format_mac,
-    async_get as async_get_device_registry,
-    DeviceInfo,
-    CONNECTION_NETWORK_MAC,
-    DeviceEntry,
-)
-from homeassistant.helpers.entity_registry import async_get as async_get_entity_registry
+from homeassistant.helpers.device_registry import DeviceInfo
 
 from homeassistant.helpers.entity_platform import AddEntitiesCallback
-import homeassistant.util.dt as dt_util  # For timezone conversion
+
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntity,
+    BinarySensorEntityDescription,
+    BinarySensorDeviceClass,
+    SensorEntityDescription,
+)
 
 from .const import (
     DOMAIN,
@@ -29,17 +23,11 @@ from .const import (
 
 from .common import get_DeviceEntry, COMMON_ENTITY_DESCRIPTIONS
 
-from .helpers import supported_sensors
-
-# COMMON_SENSOR_DESCRIPTIONS = [
-#     item for item in COMMON_ENTITY_DESCRIPTIONS if isinstance(item, SensorEntityDescription)
-# ]
 COMMON_SENSOR_DESCRIPTIONS = [
     item
     for item in COMMON_ENTITY_DESCRIPTIONS
-    if item.__class__.__name__ == SensorEntityDescription.__name__
+    if item.__class__.__name__ == BinarySensorEntityDescription.__name__
 ]
-
 
 async def async_setup_entry(
     hass: HomeAssistant,
@@ -70,7 +58,7 @@ async def _async_handle_event(
     event_data = event.data
     sender_data: dict[str, any] = event_data.get("sender_data")
     sender_mac = event_data.get("sender")
-    rssi = event_data.get("rssi")
+    # rssi = event_data.get("rssi")
 
     if not sender_mac or not sender_data:
         return
@@ -86,7 +74,7 @@ async def _async_handle_event(
             if sender_safe not in hass.data[DOMAIN]["devices"]:
                 hass.data[DOMAIN]["devices"][sender_safe] = {}
 
-                for common_entity in COMMON_SENSOR_DESCRIPTIONS:
+                for common_entity in COMMON_ENTITY_DESCRIPTIONS:
                     kcommon_entity = common_entity.key
                     hass.data[DOMAIN]["devices"][sender_safe][kcommon_entity] = (
                         ESPNowSensor(
@@ -120,7 +108,7 @@ async def _async_handle_event(
 
             hass.data[DOMAIN]["devices"][sender_safe][k]._attr_state = entity_state
 
-    for common_entity in COMMON_SENSOR_DESCRIPTIONS:
+    for common_entity in COMMON_ENTITY_DESCRIPTIONS:
         entity_state = event_data.get(common_entity.key)
         hass.data[DOMAIN]["devices"][sender_safe][
             common_entity.key

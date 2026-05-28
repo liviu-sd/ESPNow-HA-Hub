@@ -7,12 +7,24 @@ from homeassistant.components.sensor import (
     EntityCategory,
 )
 
+from homeassistant.components.binary_sensor import (
+    BinarySensorEntityDescription,
+    BinarySensorDeviceClass,
+)
+
+from homeassistant.components.switch import (
+    SwitchEntityDescription,
+    SwitchDeviceClass,
+)
+
 
 @dataclass
-class CayenneLLPSEnsor:
+class CayenneLPPSensor:
     key: str
     name: str
-    device_class: SensorDeviceClass | None = None
+    device_class: (
+        SensorDeviceClass | BinarySensorDeviceClass | SwitchDeviceClass | None
+    ) = None
     state_class: SensorStateClass | None = None
     unit_of_measurement: str | None = None
     native_unit_of_measurement: str | None = None
@@ -25,7 +37,11 @@ class CayenneLLPSEnsor:
         new_key: str | None = None,
         entity_category: EntityCategory | None = None,
         has_entity_name: bool | None = None,
-    ) -> SensorEntityDescription:
+    ) -> (
+        SensorEntityDescription
+        | BinarySensorEntityDescription
+        | SwitchEntityDescription
+    ):
         return SensorEntityDescription(
             key=new_key if new_key else self.key,
             name=self.name,

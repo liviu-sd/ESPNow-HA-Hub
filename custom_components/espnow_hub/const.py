@@ -9,6 +9,7 @@ EVENT_TYPE = "esphome.espnow_message"
 
 DEFAULT_PLATFORMS: Final[list[Platform]] = [
     Platform.SENSOR,
+    # Platform.BINARY_SENSOR,
 ]
 
 
